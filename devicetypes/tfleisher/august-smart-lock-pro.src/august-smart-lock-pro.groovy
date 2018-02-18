@@ -21,6 +21,8 @@
  * 11. DoorLockConfigurationReport always reports operationType: 1, even when autolock is enabled
  * 12. No event is sent when a wrong code is entered on keypad.
  * 13. No event is sent when the keypad "august" button is pressed and the lock is already locked.
+ * 14. When the lock is jammed, DoorLockOperationReport will report it as unlocked (there is no unknown state available).
+ * 15. If the lock is jammed and auto-lock is enabled, the auto-lock will continue to try to secure the lock.
  *
  *  Adapted by tfleisher from "Z-Wave Lock"
  *  Copyright 2018 TonyFleisher
