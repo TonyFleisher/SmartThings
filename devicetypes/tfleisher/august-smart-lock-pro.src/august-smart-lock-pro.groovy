@@ -5,10 +5,15 @@
  *  - Initial release
  *  - Known issues: Lock/Unlock with Keypad has not been tested (I don't have a keypad).
  *
+ * v0.02 TonyFleisher
+ *  - Tested and updated for keypad operation
+ *  - Fixed door sense messaging
+ *  - Add error if door sense is missing
+ *
  * If you find any problems or bugs, please open an issue in github and include debug logs in the report.
  *
  * Notes/Quirks:
- *  1. After removing battery, DoorLockOperationReport always reports door as open when it comes back online
+ *  1. After any Reset of the device (i.e. removing/replacing battery or firmware update), DoorLockOperationReport always reports door as open when it comes back online
  *  2. Lock ignores doorLockConfigurationSet (you cannot set or change autolock settings via zwave)
  *  3. Door will not respond to unlock (doorLockOperationSet) when lockMode is DOOR_LOCK_MODE_DOOR_UNSECURED_WITH_TIMEOUT
  *  4. When door is unlocked with DOOR_LOCK_MODE_DOOR_UNSECURED, Lock will be unlocked with timeout if auto-lock is enabled in the lock settings (via August App)
@@ -18,7 +23,7 @@
  *  8. On any change in door open/closed state, lock sends DoorLockOperationReport
  *  9. Although device supports Manufacturer Specific V2, serial number is not available from Device Specific Get.
  * 10. BatteryReport seems to always report 100%, regardless of battery state
- * 11. DoorLockConfigurationReport always reports operationType: 1, even when autolock is enabled
+ * 11. DoorLockConfigurationReport always reports [operationType: 1, lockTimeoutMinutes: 254, lockTimeoutSeconds: 254] even when autolock is enabled
  * 12. No event is sent when a wrong code is entered on keypad.
  * 13. No event is sent when the keypad "august" button is pressed and the lock is already locked.
  * 14. When the lock is jammed, DoorLockOperationReport will report it as unlocked (there is no unknown state available).
@@ -40,6 +45,9 @@
  *
  *
  */
+ 
+def devVer() { return "0.02-beta" }
+ 
 metadata {
 	definition (name: "August Smart Lock Pro", namespace: "tfleisher", author: "TonyFleisher") {
 		capability "Actuator"
@@ -118,11 +126,14 @@ def testCmd() {
 	log.trace "TestCmd"
 	log.debug "State: ${state}"
 	def cmds = []
-	//cmds << zwave.associationV2.associationGet(groupingIdentifier:1)
+	cmds << zwave.associationV2.associationGet(groupingIdentifier:1)
+	cmds << zwave.associationV2.associationGet(groupingIdentifier:2)
+	cmds << zwave.manufacturerSpecificV1.manufacturerSpecificGet()
+	cmds << zwave.manufacturerSpecificV2.deviceSpecificGet()
 	//cmds << zwave.powerlevelV1.powerlevelGet()
-	cmds << zwave.doorLockV1.doorLockConfigurationSet(lockTimeoutMinutes: 1, lockTimeoutSeconds: 10, operationType: DoorLockConfigurationSet.OPERATION_TYPE_TIMED_OPERATION)
-	cmds << zwave.doorLockV1.doorLockConfigurationGet()
-	cmds << zwave.doorLockV1.doorLockOperationSet(doorLockMode: DoorLockOperationSet.DOOR_LOCK_MODE_DOOR_UNSECURED_WITH_TIMEOUT)
+	//cmds << zwave.doorLockV1.doorLockConfigurationSet(lockTimeoutMinutes: 1, lockTimeoutSeconds: 10, operationType: DoorLockConfigurationSet.OPERATION_TYPE_TIMED_OPERATION)
+	//cmds << zwave.doorLockV1.doorLockConfigurationGet()
+	//cmds << zwave.doorLockV1.doorLockOperationSet(doorLockMode: DoorLockOperationSet.DOOR_LOCK_MODE_DOOR_UNSECURED_WITH_TIMEOUT)
 	def hubAction = response(secureSequence(cmds))
 
 	return hubAction
@@ -135,6 +146,13 @@ def installed() {
 	sendEvent(name: "checkInterval", value: 1 * 60 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
 }
 
+def uninstalled() {
+	log.trace "uninstalled()"
+	if (childDevices && childDevices.size > 0) {
+		log.debug "Removing Child"
+		deleteChildDevice("${device.deviceNetworkId}-door")
+	}
+}
 /**
  * Executed when the user taps on the 'Done' button on the device settings screen. Sends the values to lock.
  *
@@ -414,7 +432,8 @@ def zwaveEvent(DoorLockOperationReport cmd) {
 			contactStatusMap.descriptionText = "Door open"
 			log.debug "DoorLockOperationReport: Door condition: open"
 		}
-		result << createDoorSenseEvent(contactStatusMap)
+		//result << createDoorSenseEvent(contactStatusMap)
+		createAndSendDoorSenseEvent(contactStatusMap)
 	}
 	if (associationSet)
 		result << associationSet
@@ -422,7 +441,7 @@ def zwaveEvent(DoorLockOperationReport cmd) {
 	return result
 }
 
-private createDoorSenseEvent(contactStatusMap) {
+private createAndSendDoorSenseEvent(contactStatusMap) {
 	log.trace "createDoorSenseEvent entry"
 	if (!isDoorSenseEnabled) {
 		log.debug "Door sense not enabled"
@@ -442,6 +461,8 @@ private createDoorSenseEvent(contactStatusMap) {
 	if (childDevices && childDevices.size > 0) {
 		def child = childDevices[0]
 		child.sendEvent(contactStatusMap)
+	} else { 
+		log.error "No child device found for door sense! This error will go away if you disable doorSense in preferences."
 	}
 	log.trace "createDoorSenseEvent normal exit"
 }
@@ -500,6 +521,7 @@ def zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmTypeSupportedReport cmd
  * Lock Jammed
  * 
  * References:
+ * https://products.z-wavealliance.org/products/2624
  * https://products.z-wavealliance.org/ProductManual/File?folder=&filename=Manuals/2624/August%20Z-Wave%20Required%20Documentation.pdf
  * http://zwavepublic.com/sites/default/files/SDS12652-13%20-%20Z-Wave%20Command%20Class%20Specification%20N-Z.pdf pp. 75-80
  * http://support.august.com/customer/en/portal/articles/2859771-z-wave-information?b_id=10917&
