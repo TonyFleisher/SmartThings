@@ -10,6 +10,14 @@
  *  - Fixed door sense messaging
  *  - Add error if door sense is missing
  *
+ * v0.03 TonyFleisher
+ *  - Added attribute and tiles for alarmState and autoLockTimeout
+ *  - Changed default on DoorSense enabled to false (suggested by @airdrummingfool)
+ *  - Added option to not use Notification(Alarm) for lock status to avoid duplicate events (suggested by @airdrummingfool)
+ *    * Notification will still be used to set jammed (unknown) state
+ *  - Fix color on 'unlocked with timeout' tile
+ *  - Cleanup and reduce some extraneous logging
+ *  
  * If you find any problems or bugs, please open an issue in github and include debug logs in the report.
  *
  * Notes/Quirks:
@@ -46,7 +54,7 @@
  *
  */
  
-def devVer() { return "0.02-beta" }
+def devVer() { return "0.03-beta" }
  
 metadata {
 	definition (name: "August Smart Lock Pro", namespace: "tfleisher", author: "TonyFleisher") {
@@ -58,10 +66,11 @@ metadata {
 		capability "Battery"
 		capability "Health Check"
 		capability "Configuration"
-		attribute "lock", "enum", ["locked","unlocked", "unlocked with timeout","unknown","jammed"]
+		//attribute "lock", "enum", ["locked","unlocked", "unlocked with timeout","unknown","jammed"]
 		attribute "lastLockStatus", "enum", ["jammed","success","unknown"]
 		attribute "serialNumber", "string"
-
+		attribute "autoLockTimeout", "string"
+		attribute "alarmState", "enum", ["unknown", "manual lock", "manual unlock", "RF lock", "RF unlock", "keypad Lock", "keypad unlock", "auto lock", "lock jammed"]
 		fingerprint mfr:"033F", prod:"0001", model:"0001", deviceJoinName: "August Smart Lock Pro"
 		command "testCmd"
 	}
@@ -80,10 +89,13 @@ metadata {
 			tileAttribute ("device.lock", key: "PRIMARY_CONTROL") {
 				attributeState "locked", label:'locked', action:"lock.unlock", icon:"st.locks.lock.locked", backgroundColor:"#00A0DC", nextState:"unlocking"
 				attributeState "unlocked", label:'unlocked', action:"lock.lock", icon:"st.locks.lock.unlocked", backgroundColor:"#e86d13", nextState:"locking"
-				attributeState "unlocked with timeout", label:'unlocked', action:"lock.lock", icon:"st.locks.lock.unlocked", backgroundColor:"#ffffff", nextState:"locking"
+				attributeState "unlocked with timeout", label:'unlocked\n(with timeout)', action:"lock.lock", icon:"st.locks.lock.unlocked", backgroundColor:"#e86d13", nextState:"locking"
 				attributeState "locking", label:'locking', icon:"st.locks.lock.locked", backgroundColor:"#00A0DC"
 				attributeState "unlocking", label:'unlocking', icon:"st.locks.lock.unlocked", backgroundColor:"#ffffff"
-                attributeState "unknown", label:'jammed', action:"lock.lock", icon:"st.secondary.activity", backgroundColor:"#E86D13"
+                attributeState "unknown", label:'jammed', action:"lock.lock", icon:"st.secondary.activity", backgroundColor:"#E86D13", nextState: "locking"
+			}
+			tileAttribute ("device.alarmState", key: "SECONDARY_CONTROL") {
+				attributeState "default", label:'${currentValue}'
 			}
 		}
 		standardTile("lock", "device.lock", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
@@ -91,6 +103,9 @@ metadata {
 		}
 		standardTile("unlock", "device.lock", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
 			state "default", label:'unlock', action:"lock.unlock", icon:"st.locks.lock.unlocked", nextState:"unlocking"
+		}
+		valueTile("autolockTimeout", "device.autoLockTimeout", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+			state "default", label:'Timeout:\n${currentValue}', unit:""
 		}
 
 		valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
@@ -113,9 +128,14 @@ metadata {
 	
 	preferences {
 		input name: "isDoorSenseEnabled", type: "bool", title: "Enable DoorSense?",
-			required: true, displayDuringSetup: true, defaultValue: true
+			required: true, displayDuringSetup: true, defaultValue: false
 		input name: "isReverseDoor", type: "bool", title: "Reverse open/close status?",
 			required: true, displayDuringSetup: true, defaultValue: false
+		input type:"paragraph", title:"", description: ""
+		input type:"paragraph", title: "Advanced Settings", description: "Contact author for details on advanced configurations" 
+
+		input name: "isAlarmForLock", type: "bool", title: "Use Alarm for lock state?",
+			defaultValue: true
 	}
 }
 
@@ -126,10 +146,11 @@ def testCmd() {
 	log.trace "TestCmd"
 	log.debug "State: ${state}"
 	def cmds = []
-	cmds << zwave.associationV2.associationGet(groupingIdentifier:1)
-	cmds << zwave.associationV2.associationGet(groupingIdentifier:2)
-	cmds << zwave.manufacturerSpecificV1.manufacturerSpecificGet()
-	cmds << zwave.manufacturerSpecificV2.deviceSpecificGet()
+	//cmds << zwave.associationV2.associationGet(groupingIdentifier:1)
+	//cmds << zwave.associationV2.associationGet(groupingIdentifier:2)
+	//cmds << zwave.manufacturerSpecificV1.manufacturerSpecificGet()
+	//cmds << zwave.manufacturerSpecificV2.deviceSpecificGet()
+	cmds << zwave.doorLockV1.doorLockOperationGet()
 	//cmds << zwave.powerlevelV1.powerlevelGet()
 	//cmds << zwave.doorLockV1.doorLockConfigurationSet(lockTimeoutMinutes: 1, lockTimeoutSeconds: 10, operationType: DoorLockConfigurationSet.OPERATION_TYPE_TIMED_OPERATION)
 	//cmds << zwave.doorLockV1.doorLockConfigurationGet()
@@ -323,7 +344,7 @@ def zwaveEvent(physicalgraph.zwave.commands.configurationv2.ConfigurationReport 
  *
  */
 def zwaveEvent(physicalgraph.zwave.commands.securityv1.SecurityMessageEncapsulation cmd) {
-	log.trace "[DTH] Executing 'zwaveEvent(physicalgraph.zwave.commands.securityv1.SecurityMessageEncapsulation)' with cmd = $cmd"
+	//log.trace "[DTH] Executing 'zwaveEvent(physicalgraph.zwave.commands.securityv1.SecurityMessageEncapsulation)' with cmd = $cmd"
 	def encapsulatedCommand = cmd.encapsulatedCommand([0x62: 1, 0x71: 2, 0x80: 1, 0x85: 2, 0x63: 1, 0x98: 1, 0x86: 1])
 	if (encapsulatedCommand) {
 		zwaveEvent(encapsulatedCommand)
@@ -400,27 +421,39 @@ def zwaveEvent(DoorLockOperationReport cmd) {
 	} else if (cmd.doorLockMode == 0x01) {
 		lockedStatusMap.value = "unlocked with timeout"
 		def lockTimeout = "${ String.format('%02d',cmd.lockTimeoutMinutes)}:${ String.format('%02d',cmd.lockTimeoutSeconds)}"
-		lockedStatusMap.descriptionText = "Unlocked with timeout (timeout: ${lockTimeout})"
+		lockedStatusMap.descriptionText = "Unlocked with timeout"
+		lockedStatusMap.data = [ "lockTimeout": lockTimeout ]
 		state.lockTimeoutMinutes = cmd.lockTimeoutMinutes
 		state.lockTimeoutSeconds = cmd.lockTimeoutSeconds
+	} else if (cmd.doorLockMode == 0xFE) {
+		lockedStatusMap.value = "unknown"
+		lockedStatusMap.descriptionText = "unknown door lock state"
 	} else {
 		log.trace "DoorLockOperationReport: Unexpected mode: ${cmd.doorLockMode}"
 		lockedStatusMap.value = "unknown"
-		lockedStatusMap.descriptionText = "DLO Unknown state: ${cmd.doorLockMode}"
+		lockedStatusMap.descriptionText = "DLO Unexpected mode: ${cmd.doorLockMode}"
 	}
 	
 	if (lockedStatusMap.value == "unlocked" && state.assoc != zwaveHubNodeId) {
 		log.trace "DoorLockOperationReport: Sending associationSet"
-		associationSet << response(secure(zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:zwaveHubNodeId)))
-		associationSet << response(secure(zwave.associationV1.associationGet(groupingIdentifier:1)))
+		associationSet << secureSequence(
+			zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:zwaveHubNodeId),
+			zwave.associationV1.associationGet(groupingIdentifier:1)
+		)
 	}
+	result << createEvent(lockedStatusMap)
 	
 	if (cmd.doorCondition & 0x2) {
 		log.debug "DoorLockOperationReport: Door condition: unlocked"
 	} else {
 		log.debug "DoorLockOperationReport: Door condition: locked"
 	}
-	result << createEvent(lockedStatusMap)
+
+	if (cmd.lockTimeoutMinutes || cmd.lockTimeoutSeconds) {
+		def lockTimeoutString = "${ String.format('%02d',cmd.lockTimeoutMinutes)}:${ String.format('%02d',cmd.lockTimeoutSeconds)}"
+		result << createEvent([name: "autoLockTimeout", value: lockTimeoutString])
+	}
+	
 	if (isDoorSenseEnabled) {
 		def contactStatusMap = [ name: "contact"]
 		if (cmd.doorCondition & 0x1) {
@@ -480,21 +513,21 @@ def zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmReport cmd) {
 	def result = []
 	
 	if (cmd.zwaveAlarmType == 6) {
-		log.trace "[DTH] AlarmReport type 6 (AccessControl)"
+//		log.trace "[DTH] AlarmReport type 6 (AccessControl)"
 		result = handleAccessAlarmReport(cmd)
 	} else if (cmd.zwaveAlarmType == 7) {
-		log.trace "[DTH] AlarmReport type 7 (HomeSecurity)"
+//		log.trace "[DTH] AlarmReport type 7 (HomeSecurity)"
 		result = handleBurglarAlarmReport(cmd)
 	} else if(cmd.zwaveAlarmType == 8) {
-		log.trace "[DTH] AlarmReport type 8 (PowerManagement)"
+//		log.trace "[DTH] AlarmReport type 8 (PowerManagement)"
 		result = handleBatteryAlarmReport(cmd)
 	} else {
-		log.trace "[DTH] AlarmReport type ${cmd.zwaveAlarmType}"
+//		log.trace "[DTH] AlarmReport type ${cmd.zwaveAlarmType}"
 		result = handleAlarmReportUsingAlarmType(cmd)
 	}
-		
+
 	result = result ?: null
-	log.debug "[DTH] zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmReport) returning with result = ${ result.inspect()}"
+//	log.debug "[DTH] zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmReport) returning with result = ${ result.inspect()}"
 	result
 }
 
@@ -527,11 +560,13 @@ def zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmTypeSupportedReport cmd
  * http://support.august.com/customer/en/portal/articles/2859771-z-wave-information?b_id=10917&
  */
 private def handleAccessAlarmReport(cmd) {//
-	log.trace "[DTH] Executing 'handleAccessAlarmReport' with cmd = $cmd"
+	//log.trace "[DTH] Executing 'handleAccessAlarmReport' with cmd = $cmd"
+	log.trace "[DTH] Executing 'handleAccessAlarmReport'"
 	def result = []
 	def map = null
 	def isJammed = false
 	def lastLockStatusValue = "unknown"
+	def alarmState = "unknown"
 
 	def deviceName = device.displayName
 	if (1 <= cmd.zwaveAlarmEvent && cmd.zwaveAlarmEvent < 8) {
@@ -542,60 +577,70 @@ private def handleAccessAlarmReport(cmd) {//
 			map.descriptionText = "Locked manually"
 			map.data = [ method: (cmd.alarmLevel == 2) ? "keypad" : "manual" ]
 			lastLockStatusValue = "success"
+			alarmState = "manual lock"
 			break
 		case 2: // Manually unlocked
 			map.descriptionText = "Unlocked manually"
 			map.data = [ method: "manual" ]
 			lastLockStatusValue = "success"
+			alarmState = "manual unlock"
 			break
 		case 3: // Locked by command
 			map.descriptionText = "Locked"
 			map.data = [ method: "command" ]
 			lastLockStatusValue = "success"
+			alarmState = "RF lock"
 			break
 		case 4: // Unlocked by command
 			map.descriptionText = "Unlocked"
 			map.data = [ method: "command" ]
 			lastLockStatusValue = "success"
+			alarmState = "RF unlock"
 			break
 		case 5: // Locked with keypad
 		// TODO: See if we can access details about code used
 			map.descriptionText = "Locked with keypad"
 			map.data = [method: "keypad"]
 			lastLockStatusValue = "success"
+			alarmState = "keypad lock"
 			break
 		case 6: // Unlocked with keypad
 		// TODO: See if we can access details about code used
 			map.descriptionText = "Unlocked with keypad"
 			map.data = [method: "keypad"]
 			lastLockStatusValue = "success"
+			alarmState = "keypad unlock"
 			break
 		case 7: // Not Fully Unlocked (NOT Supported in FW 1.56)
 			map = [ name: "lock", value: "unknown", descriptionText: "Manual Not Fully Locked" ]
 			map.data = [ method: "manual" ]
 			lastLockStatusValue = "fail"
+			alarmState = "unknown"
 			break
 		case 8: // Not Fully Unlocked (NOT Supported in FW 1.56)
 			map = [ name: "lock", value: "unknown", descriptionText: "RF Not Fully Locked " ]
 			map.data = [ method: "command" ]
 			lastLockStatusValue = "fail"
+			alarmState = "unknown"
 			break
 		case 9: // Auto locked
 			map = [ name: "lock", value: "locked", data: [ method: "auto" ] ]
 			map.descriptionText = "Auto locked"
 			lastLockStatusValue = "success"
+			alarmState = "auto lock"
 			break
 		case 0xA: // Not Fully Auto locked (NOT Supported in FW 1.56)
 			map = [ name: "lock", value: "unknown", descriptionText: "Auto Lock Not Fully" ]
 			map.data = [ method: "auto" ]
 			lastLockStatusValue = "fail"
+			alarmState = "unknown"
 			break
 		case 0xB: // Jammed
 			map = [ name: "lock", value: "unknown", descriptionText: "${device.displayName} Lock Jammed" ]
 			lastLockStatusValue = "jammed"
+			alarmState = "lock jammed"
 			isJammed = true
 			break
-
 		case 0xFE:
 			// delegating it to handleAlarmReportUsingAlarmType
 			return handleAlarmReportUsingAlarmType(cmd)
@@ -610,10 +655,12 @@ private def handleAccessAlarmReport(cmd) {//
 		} else {
 			map.data = [ lockName: deviceName ]
 		}
-		result << createEvent(map)
+		if (isAlarmForLock || isJammed)
+			result << createEvent(map)
 	}
-	
-	def lastLockStatusMap = [name: 'lastLockStatus', value: lastLockStatusValue]
+	def alarmStateMap = [name: 'alarmState', value: alarmState, data: map.data]
+	result << createEvent(alarmStateMap)
+	def lastLockStatusMap = [name: 'lastLockStatus', value: lastLockStatusValue, displayed: true]
 	result << createEvent(lastLockStatusMap)
 	
 //	if (isJammed) {
