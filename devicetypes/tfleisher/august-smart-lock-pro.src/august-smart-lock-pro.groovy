@@ -122,8 +122,8 @@ metadata {
 //		}
 
 		main "toggle"
-		details(["toggle", "lock", "unlock", "battery", "refresh"])
-//		details(["toggle", "lock", "unlock", "battery", "refresh","test"])
+		details(["toggle", "lock", "unlock", "autolockTimeout", "battery", "refresh"])
+//		details(["toggle", "lock", "unlock", "autolockTimeout", "battery", "refresh","test"])
 	}
 	
 	preferences {
