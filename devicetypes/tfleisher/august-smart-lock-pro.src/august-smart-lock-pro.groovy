@@ -18,6 +18,11 @@
  *  - Fix color on 'unlocked with timeout' tile
  *  - Cleanup and reduce some extraneous logging
  *  
+ * v0.04 TonyFleisher
+ *  - Add setting to work around bug with autolock timeout reporting
+ *  - Try to fix paragraph elements in preferences (iOS only)
+ *  - Fix bug with autolock reporting when autolock is disabled.
+ *   
  * If you find any problems or bugs, please open an issue in github and include debug logs in the report.
  *
  * Notes/Quirks:
@@ -54,7 +59,7 @@
  *
  */
  
-def devVer() { return "0.03-beta" }
+def devVer() { return "0.04-beta" }
  
 metadata {
 	definition (name: "August Smart Lock Pro", namespace: "tfleisher", author: "TonyFleisher") {
@@ -131,11 +136,13 @@ metadata {
 			required: true, displayDuringSetup: true, defaultValue: false
 		input name: "isReverseDoor", type: "bool", title: "Reverse open/close status?",
 			required: true, displayDuringSetup: true, defaultValue: false
-		input type:"paragraph", title:"", description: ""
-		input type:"paragraph", title: "Advanced Settings", description: "Contact author for details on advanced configurations" 
+		input type:"paragraph", element: "paragraph", title:"", description: ""
+		input type:"paragraph", element: "paragraph", title: "Advanced Settings", description: "Contact author for details on advanced configurations" 
 
 		input name: "isAlarmForLock", type: "bool", title: "Use Alarm for lock state?",
 			defaultValue: true
+		input name: "isWorkaroundAutolockBug", type: "bool", title: "Workaround auto lock timeout bug?",
+			defaultValue: false
 	}
 }
 
@@ -449,8 +456,18 @@ def zwaveEvent(DoorLockOperationReport cmd) {
 		log.debug "DoorLockOperationReport: Door condition: locked"
 	}
 
-	if (cmd.lockTimeoutMinutes || cmd.lockTimeoutSeconds) {
-		def lockTimeoutString = "${ String.format('%02d',cmd.lockTimeoutMinutes)}:${ String.format('%02d',cmd.lockTimeoutSeconds)}"
+	if (cmd.doorLockMode != 0xFE) {
+		def lockTimeoutString = "unknown";
+		if (cmd.lockTimeoutMinutes != 0xFE && cmd.lockTimeoutSeconds != 0xFE) {
+			if (isWorkaroundAutolockBug) {
+				lockTimeoutString = getFixupTimeoutString(cmd.lockTimeoutMinutes,cmd.lockTimeoutSeconds)
+			} else {
+				lockTimeoutString = "${ String.format('%02d',cmd.lockTimeoutMinutes)}:${ String.format('%02d',cmd.lockTimeoutSeconds)}"
+			}
+		}
+		else {
+			lockTimeoutString = "disabled"
+		}
 		result << createEvent([name: "autoLockTimeout", value: lockTimeoutString])
 	}
 	
@@ -474,6 +491,30 @@ def zwaveEvent(DoorLockOperationReport cmd) {
 	return result
 }
 
+private getFixupTimeoutString(pMinutes,pSeconds) {
+	log.trace "getFixupTimeoutString: Input: ${ pMinutes }:${ pSeconds }"
+	def fixedM = pMinutes
+	def fixedS = pSeconds
+	if (pMinutes == 0 && pSeconds == 44) {
+	 fixedM = 5
+	 fixedS = 0
+	}
+	if (pMinutes == 1 && pSeconds == 28) {
+	 fixedM = 10
+	 fixedS = 0	
+	}
+	if (pMinutes == 2 && pSeconds == 56) {
+	 fixedM = 20
+	 fixedS = 0	
+	}
+	if (pMinutes == 0 && pSeconds == 8) {
+	 fixedM = 30
+	 fixedS = 0	
+	}
+    def result = "${ String.format('%02d',fixedM)}:${ String.format('%02d',fixedS)}"
+    	log.trace "getFixupTimeoutString: returning ${ result }"
+    return result
+}
 private createAndSendDoorSenseEvent(contactStatusMap) {
 	log.trace "createDoorSenseEvent entry"
 	if (!isDoorSenseEnabled) {
