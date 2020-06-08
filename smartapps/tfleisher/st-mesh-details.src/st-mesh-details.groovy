@@ -115,7 +115,7 @@
 	 def javaScript = """
  var token="${personalToken()}"
  var stAPIUrl="https://api.smartthings.com/v1/"
- var mySTHost = "https://graph-na04-useast2.api.smartthings.com"
+ var mySTHost = "${apiServerUrl()}"
  const MAX_IDE_DEV_COUNT=100;
  
  function loadScripts() {
