@@ -94,15 +94,10 @@
 <script src="${getAppEndpointUrl("script.js")}"></script>
 </head>
 <body>
+<h1 style="text-align:center;">ST Mesh Details</h1>
 <table id="mainTable" class="stripe cell-border hover">
 	 <thead>
 	 	<tr>
-	 		<th>id</th>
-	 		<th>label</th>
-	 		<th>networkType</th>
-	 		<th>Route</th>
-	 		<th>parent</th>
-	 		<th>children</th>
 	   </tr>
 	 </thead>
 </table>
@@ -175,8 +170,8 @@
 		 };
 	 var ideDeviceData = {};
 	 if (ideDevCount < MAX_IDE_DEV_COUNT) {
-		 console.log("Testing IDE request");
-		 ideDeviceData = getIDEDevice(device.deviceId, device.deviceNetworkType);
+		 //console.log("Testing IDE request");
+		 ideDeviceData = getIDEDevice(device);
 		 ideDevCount = ideDevCount + 1;
 		 return ideDeviceData.then(ideData => {
 			 Object.keys(ideData).forEach(e => deviceData[e] = ideData[e]);
@@ -186,7 +181,10 @@
 	 return Promise.resolve(deviceData);
  }
  var r;
- function getIDEDevice(deviceId, deviceNetworkType) {
+ function getIDEDevice(device) {
+   const deviceId = device.deviceId;
+   const deviceNetworkType = device.deviceNetworkType;
+   const label = device.label;
    const instance = axios.create({
 		   baseURL: mySTHost,
 		   responseType: "document",
@@ -203,16 +201,22 @@
 	 	 var routeLabel = doc.find('#meshRoute-label');
 		 var routesHtmlLinks = routeLabel.parent().find('.property-value a')
 	 	 var routeHtml = routeLabel.parent().find('.property-value')[0].innerHTML.toString();
+	 	 //console.log(routeHtml);
+	 	 var cleanRouteHtml = routeHtml.replace(/[)] /g,")").replace(/This Device/g, label);
+	 	 //console.log(cleanRouteHtml);
 		 var theDevice = routesHtmlLinks[0];
 		 var theParent = routesHtmlLinks[1];
 		 var theParentName = theParent.text.trim();
 		 var theParentHref = theParent.href.trim();
 		 var theParentId = theParent.href.substring(theParent.href.lastIndexOf('/') + 1);
-		 console.log(`Device: \${deviceId} parent: \${theParentName}(\${theParentId})`);
+		 
+	 	 var routers = routesHtmlLinks.toArray().filter( (n,i) => i > 0).map( (e) => e.text.trim()); 
+	 	 //console.log(`Device: \${deviceId} parent: \${theParentName}(\${theParentId})`);
 		 result = {
 				 parentName: theParentName,
 				 parentId: theParentId,
-	 			 routeHtml: routeHtml
+	 			 routeHtml: cleanRouteHtml,
+	 			 routers: routers
 			 };
 		 result.metrics = {};
 		 doc.find('#deviceMetrics-label').parent().find('.property-value li')
@@ -227,7 +231,7 @@
 				 const v = m2.trim();
 				 result.metrics[m] = v;
 			 });
-		 console.log(result);
+		 //console.log(result);
 		 return result;
    });
  }
@@ -260,17 +264,25 @@
 					 //console.log(deviceMap);
 					 tableHandle = \$('#mainTable').DataTable({
 						 data: tableContent,
+	 					 order: [[2,'asc']],
 						 columns: [
-							 { data: 'id' },
-							 { data: 'label' },
-							 { data: 'networkType', searchPanes: { preSelect:['ZWAVE','ZIGBEE']} },
-	 						 { data: 'routeHtml' },
-							 { data: 'parentName' },
-							{ data: 'children',
+							 { data: 'networkType', title: 'Type', searchPanes: { preSelect:['ZWAVE','ZIGBEE']} },
+							 { data: 'id', title: 'Device id' },
+							 { data: 'label', title: 'Device name' },
+	 						 { data: 'routeHtml', title: 'Route' },
+							 { data: 'parentName', title: 'Next Hop', visible: false },
+	 						 { data: 'routers', title: 'Routers', visible: false,
 								render: {'_':'[, ]', sp: '[]'},
 								defaultContent: "None",
 								searchPanes : { orthogonal: 'sp' }
-							}
+							},
+	 						 { data: 'metrics.LastHopRSSI', title: 'Last Hop RSSI', defaultContent: "n/a", searchPanes: {show: false} },
+
+							/*{ data: 'children', title: 'Consumers',
+								render: {'_':'[, ]', sp: '[]'},
+								defaultContent: "None",
+								searchPanes : { orthogonal: 'sp' }
+							} */
 						 ],
 						 "pageLength": -1,
 						 "rowId": 'id',
