@@ -100,6 +100,7 @@
 	 		<th>id</th>
 	 		<th>label</th>
 	 		<th>networkType</th>
+	 		<th>Route</th>
 	 		<th>parent</th>
 	 		<th>children</th>
 	   </tr>
@@ -199,16 +200,19 @@
 	   r = response
 		   var result = {}
 		   var doc = new jQuery(response.data)
-		 var routesHtml = doc.find('#meshRoute-label').parent().find('.property-value a')
-		 var theDevice = routesHtml[0];
-		 var theParent = routesHtml[1];
+	 	 var routeLabel = doc.find('#meshRoute-label');
+		 var routesHtmlLinks = routeLabel.parent().find('.property-value a')
+	 	 var routeHtml = routeLabel.parent().find('.property-value')[0].innerHTML.toString();
+		 var theDevice = routesHtmlLinks[0];
+		 var theParent = routesHtmlLinks[1];
 		 var theParentName = theParent.text.trim();
 		 var theParentHref = theParent.href.trim();
 		 var theParentId = theParent.href.substring(theParent.href.lastIndexOf('/') + 1);
 		 console.log(`Device: \${deviceId} parent: \${theParentName}(\${theParentId})`);
 		 result = {
 				 parentName: theParentName,
-				 parentId: theParentId
+				 parentId: theParentId,
+	 			 routeHtml: routeHtml
 			 };
 		 result.metrics = {};
 		 doc.find('#deviceMetrics-label').parent().find('.property-value li')
@@ -260,6 +264,7 @@
 							 { data: 'id' },
 							 { data: 'label' },
 							 { data: 'networkType', searchPanes: { preSelect:['ZWAVE','ZIGBEE']} },
+	 						 { data: 'routeHtml' },
 							 { data: 'parentName' },
 							{ data: 'children',
 								render: {'_':'[, ]', sp: '[]'},
