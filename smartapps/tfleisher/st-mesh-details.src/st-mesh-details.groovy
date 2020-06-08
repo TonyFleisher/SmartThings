@@ -303,7 +303,7 @@
 		 getAccessToken()
 	 }
  	 log.debug "Endpoint (redirect): ${getLoginUrl()}"
-	 log.debug "Endpoint: ${getAppEndpointUrl('/meshinfo')}"
+	 log.debug "Endpoint: ${getAppEndpointUrl('meshinfo')}"
 }
  
  def uninstalled() {
