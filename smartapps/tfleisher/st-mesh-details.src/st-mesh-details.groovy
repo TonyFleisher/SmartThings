@@ -95,6 +95,7 @@
 </head>
 <body>
 <h1 style="text-align:center;">ST Mesh Details</h1>
+<div id="messages"><div id="loading1" style="text-align:center;"></div><div id="loading2" style="text-align:center;"></div></div>
 <table id="mainTable" class="stripe cell-border hover">
 	 <thead>
 	 	<tr>
@@ -115,6 +116,7 @@
  const MAX_IDE_DEV_COUNT=100;
  
  function loadScripts() {
+ 	 updateLoading('Loading...','Getting script sources');
 	 var s1 = \$.getScript('https://unpkg.com/axios/dist/axios.min.js', function() {
 		 console.log("axios loaded")
 	 });
@@ -235,6 +237,11 @@
 		 return result;
    });
  }
+
+function updateLoading(msg1, msg2) {
+	 \$('#loading1').text(msg1);
+ 	 \$('#loading2').text(msg2);
+}
  
  \$.ajaxSetup({
 	   cache: true
@@ -243,14 +250,17 @@
  var tableHandle;
  \$(document).ready(function(){
 		 loadScripts().then(function() {
+			 updateLoading('Loading..','Getting device data');
 			 getDeviceList(token).then(list => {
 				 // console.log(list)
+				 updateLoading('Loading.','Getting device detail');
 				 Promise.all(list).then(r => {
 					 var deviceMap = r.reduce( (acc,val) => {
 						 acc[val.id]=val;
 						 return acc;
 					 }, {});
 					 
+				 	updateLoading('Loading..','Building maps');
 					 r.forEach(d => {
 						 const p = deviceMap[d.parentId];
 						 if (p != undefined) {
@@ -262,6 +272,7 @@
 					 });
 					 tableContent = r;
 					 //console.log(deviceMap);
+					 updateLoading('Loading..','Creating table');
 					 tableHandle = \$('#mainTable').DataTable({
 						 data: tableContent,
 	 					 order: [[2,'asc']],
@@ -293,6 +304,8 @@
  							cascadePanes: true
 					 	  }
 					 });
+				 	updateLoading('','');
+
 				 });
 			 });
 		 });
